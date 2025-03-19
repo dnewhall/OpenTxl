@@ -269,7 +269,7 @@ module debugger
         put : 0, "  step [N] or <CR>  step trace execution for N (default 1) steps"
         put : 0, "  in RULE[-N] CMD   execute debugger command 'CMD' in context of rule 'RULE'"
         put : 0, "  help              print out this help summary"
-        put : 0, "  quit              exit TXL"
+        put : 0, "  quit/exit/bye     exit TXL"
     end dbhelp
 
 
@@ -359,7 +359,9 @@ module debugger
 
         case kind of
             label DBkind.startup :
-                dbhelp
+                if not options.option (quiet_p) then
+                    dbhelp
+                end if
 
             label DBkind.shutdown :
                 put : 0, "  Exiting TXL program"
