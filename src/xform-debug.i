@@ -82,7 +82,7 @@ module debugger
         end loop
 
         if bp > nbreakpoints then
-            put : 0, "  ? Rule not being breakpointed"
+            put : 0, "  ? Rule not being breakpointed ", string@(ident.idents (ruleName))
             return
         end if
 
@@ -115,6 +115,16 @@ module debugger
             result isrealbreakpoint (ruleName)
         end if
     end isbreakpoint
+
+    function findruleindex (ruleName : tokenT) : nat
+        for r : 1 .. rule.nRules
+            if rule.rules (r).name = ruleName then
+                result r
+            elsif r = rule.nRules then
+                result 0
+	    end if
+        end for
+    end findruleindex
 
     procedure findruleordefine (sourceFileName, sourceDirectory : string, rdId : string,
             var rdfilename : string, var rdline : int)
@@ -609,17 +619,15 @@ module debugger
                 end if
                 
                 var found := false
-                for r : 1..rule.nRules
-                    if rule.rules (r).name = setrulename then
-                        found := true
-                        matchfinding := true
-                        matchrulename := setrulename
-                        exit
-                    elsif r = rule.nRules then
-                        put : 0, "  ? No such rule"
-                        exit
-                    end if
-                end for
+                var ruleIndex : nat := findruleindex (setrulename)
+                if ruleIndex > 0 then
+                    found := true
+                    matchfinding := true
+                    matchrulename := setrulename
+                else
+                    put : 0, "  ? No such rule"
+                    exit
+                end if
                 
                 exit when found
 
@@ -630,16 +638,37 @@ module debugger
                 else
                     ruleId := string@(ident.idents (ruleName))
                 end if
-                const setRuleName := ident.lookup (ruleId)
-                for r : 1..rule.nRules
-                    if rule.rules (r).name = setRuleName then
-                        setbreakpoint (setRuleName)
-                        exit
-                    elsif r = rule.nRules then
-                        put : 0, "  ? No such rule"
-                        exit
+                if ident.isIdentPattern (ruleId) then
+                    var pattern := ident.startPatternLookup (ruleId)
+                    var ruleFound := false
+                    loop
+                        var setRuleName := ident.lookupNextPattern (pattern)
+                        exit when setRuleName = ident.nilIdent
+
+                        if setRuleName not= ident.nilIdent then
+                            var r := findruleindex (setRuleName)
+                            if r > 0 then
+                                setbreakpoint (setRuleName)
+                                ruleFound := true
+                            end if
+                        end if
+                    end loop
+                    if not ruleFound then
+                        put : 0, "  ? No rule matching pattern ", ruleId
                     end if
-                end for
+                else
+                    % Trim quote, if one exists
+                    if ruleId (1) = '\'' then
+                        ruleId := ruleId (2 .. *)
+                    end if
+                    const setRuleName := ident.lookup (ruleId)
+                    var r := findruleindex (setRuleName)
+                    if r > 0 then
+                        setbreakpoint (setRuleName)
+                    else
+                        put : 0, "  ? No such rule ", ruleId
+                    end if
+                end if
 
             elsif command = "clear" or command = "clr" 
                     or index (command, "clear ") = 1  or index (command, "clr ") = 1 then
@@ -650,16 +679,35 @@ module debugger
                 else
                     ruleId := string@(ident.idents (ruleName))
                 end if
-                const clearRuleName := ident.lookup (ruleId)
-                for r : 1..rule.nRules
-                    if rule.rules (r).name = clearRuleName then
-                        clearbreakpoint (clearRuleName)
-                        exit
-                    elsif r = rule.nRules then
-                        put : 0, "  ? No such rule"
-                        exit
+                if ident.isIdentPattern (ruleId) then
+                    var pattern := ident.startPatternLookup (ruleId)
+                    var ruleFound := false
+                    loop
+                        var clearRuleName := ident.lookupNextPattern (pattern)
+                        exit when clearRuleName = ident.nilIdent
+
+                        var r := findruleindex (clearRuleName)
+                        if r > 0 then
+                            clearbreakpoint (clearRuleName)
+                            ruleFound := true
+                        end if
+                    end loop
+                    if not ruleFound then
+                        put : 0, "  ? No rule matching pattern ", ruleId
                     end if
-                end for
+                else
+                    % Trim quote, if one exists
+                    if ruleId (1) = '\'' then
+                        ruleId := ruleId (2 .. *)
+                    end if
+                    const clearRuleName := ident.lookup (ruleId)
+                    var r := findruleindex (clearRuleName)
+                    if r > 0 then
+                        clearbreakpoint (clearRuleName)
+                    else
+                        put : 0, "  ? No such rule ", ruleId
+                    end if
+                end if
 
             elsif command = "showbps" then
                 var outlength := 0

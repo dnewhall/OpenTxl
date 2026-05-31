@@ -34,7 +34,9 @@ module ident
     import error, var tree
 
     export idents, identKind, identTree, nIdents, nilIdent, 
-        identText, nIdentChars, install, lookup, setKind
+        identText, nIdentChars, install, lookup, setKind,
+        identPatternLookup, startPatternLookup, lookupNextPattern,
+        isIdentPattern
 
     const * nilIdent := 0       % we use the hash code for ASCII NUL (chr(0)) as the nil identifier
 
@@ -125,6 +127,88 @@ module ident
     
         result identIndex
     end lookup
+
+    % Used for sequential identifier lookup with wildcards
+    type identPatternKind : enum (matchAny, matchStart, matchEnd, matchMiddle)
+
+    type identPatternLookup :
+        record
+            currentIndex : int  % Current index in idents
+            patternString : string  % The pattern itself
+            patternKind: identPatternKind
+        end record
+
+    % Return true if the identifier matches the pattern
+    function identPatternMatches (patternLookup : identPatternLookup, ident : string) : boolean
+        bind pattern to patternLookup.patternString
+        var pattLen := length (pattern)
+        var identLen := length (ident)
+        case patternLookup.patternKind of
+            label identPatternKind.matchAny :
+                result true
+            label identPatternKind.matchStart :
+                result identLen >= pattLen - 1
+                   and ident (identLen - (pattLen - 2) .. identLen) = pattern (2 .. pattLen)
+            label identPatternKind.matchEnd :
+                result identLen >= pattLen - 1
+                   and ident (1 .. pattLen - 1) = pattern(1 .. pattLen - 1)
+            label identPatternKind.matchMiddle :
+                var i := index (pattern, '*')
+                var pattLeft := pattern (1 .. i - 1)
+                var pattRight := pattern (i + 1 .. pattLen)
+                result identLen >= pattLen - 1
+                   and ident (1 .. length (pattLeft)) = pattLeft
+                   and ident (identLen - length (pattRight) + 1 .. identLen) = pattRight
+        end case
+        result false
+    end identPatternMatches
+
+    function isIdentPattern (pattern : string) : boolean
+        % Can't start with '\'' and contains a '*'
+        result pattern (1) not= '\'' and index (pattern, "*") > 0
+    end isIdentPattern
+
+    function startPatternLookup (pattern : string) : identPatternLookup
+        var patternLookup : identPatternLookup
+        patternLookup.currentIndex := 1  % idents starts at 0, but first is nilIdent
+        patternLookup.patternString := pattern
+        % Start - "*foo"
+        if pattern (1) = '*' then
+            if length (pattern) = 1 then
+                patternLookup.patternKind := identPatternKind.matchAny
+            else
+                patternLookup.patternKind := identPatternKind.matchStart
+            end if
+        % End - "foo*"
+        elsif pattern (length(pattern)) = '*' then
+            patternLookup.patternKind := identPatternKind.matchEnd
+        % Middle - "foo*bar"
+        else
+            patternLookup.patternKind := identPatternKind.matchMiddle
+        end if
+
+        result patternLookup
+    end startPatternLookup
+
+    function lookupNextPattern (var patternLookup : identPatternLookup) : tokenT
+        var startIndex := patternLookup.currentIndex
+
+        var register identIndex : nat := 0
+        var numMatches : nat := 0
+
+        for i : startIndex .. maxIdents - 1
+            if idents (i) not= nilIdent then
+               var ident := string@(idents (i))
+               if identPatternMatches (patternLookup, string@(idents (i))) then
+                   patternLookup.currentIndex := i + 1
+                   result i
+               end if
+            end if
+        end for
+
+        patternLookup.currentIndex := 1  % Reset
+        result NOT_FOUND
+    end lookupNextPattern
 
     % Install an identifier in the identifier table and return its index.
     % Begin with the hash of the identifier, then add the secondary hash modulo table size until we find it
